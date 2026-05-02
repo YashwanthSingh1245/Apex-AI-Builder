@@ -11,13 +11,16 @@ const PAGE_TYPE_ICONS = {
 }
 
 export default function App() {
-  const [sessionId, setSessionId] = useState(null)
-  const [messages, setMessages]   = useState([])
-  const [input, setInput]         = useState('')
-  const [loading, setLoading]     = useState(false)
-  const [error, setError]         = useState(null)
-  const [appPlan, setAppPlan]     = useState(null)
-  const messagesEndRef             = useRef(null)
+  const [sessionId, setSessionId]   = useState(null)
+  const [messages, setMessages]     = useState([])
+  const [input, setInput]           = useState('')
+  const [loading, setLoading]       = useState(false)
+  const [error, setError]           = useState(null)
+  const [appPlan, setAppPlan]       = useState(null)
+  const [planJson, setPlanJson]     = useState(null)
+  const [accepting, setAccepting]   = useState(false)
+  const [accepted, setAccepted]     = useState(null)  // { appId, script }
+  const messagesEndRef               = useRef(null)
 
   // ── Create session on load ──
   useEffect(() => {
@@ -34,18 +37,12 @@ export default function App() {
       .catch(() => setError('Cannot reach APEX server. Check CORS settings.'))
   }, [])
 
-  // ── Auto scroll ──
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // ── Clean reply text (strip JSON block) ──
-  const cleanReply = (text) => {
-    return text
-      .replace(/```json[\s\S]*?```/g, '')
-      .replace(/```[\s\S]*?```/g, '')
-      .trim()
-  }
+  const cleanReply = (text) =>
+    text.replace(/```json[\s\S]*?```/g, '').replace(/```[\s\S]*?```/g, '').trim()
 
   // ── Send message ──
   const sendMessage = async () => {
@@ -65,20 +62,19 @@ export default function App() {
       const data = await res.json()
 
       if (data.status === 'success') {
-        // Strip JSON block from chat display
-        const displayText = cleanReply(data.reply)
-        setMessages(prev => [...prev, { role: 'assistant', text: displayText }])
-
-        // Update right panel if plan returned
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          text: cleanReply(data.reply)
+        }])
         if (data.has_plan === 'Y' && data.plan_json) {
           try {
             const plan = typeof data.plan_json === 'string'
               ? JSON.parse(data.plan_json)
               : data.plan_json
             setAppPlan(plan)
-          } catch {
-            // plan_json parse failed silently
-          }
+            setPlanJson(data.plan_json)
+            setAccepted(null) // reset accepted state on new plan
+          } catch { /* silent */ }
         }
       } else {
         setError('AI error: ' + data.message)
@@ -88,6 +84,49 @@ export default function App() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // ── Accept & Create App ──
+  const acceptApp = async () => {
+    if (!sessionId || !planJson || accepting) return
+    setAccepting(true)
+    setError(null)
+
+    try {
+      const res = await fetch(`${BASE_URL}/create-app/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session_id: sessionId,
+          plan_json:  typeof planJson === 'string'
+            ? JSON.parse(planJson)
+            : planJson
+        })
+      })
+      const data = await res.json()
+
+      if (data.status === 'success') {
+        setAccepted({ appId: data.app_id, script: data.script })
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          text: `✅ App plan accepted! App ID: ${data.app_id}\n\nYour install script is ready. Copy it and run it in APEX SQL Workshop to create the app.`
+        }])
+      } else {
+        setError('Create app error: ' + data.message)
+      }
+    } catch {
+      setError('Network error on create-app.')
+    } finally {
+      setAccepting(false)
+    }
+  }
+
+  // ── Copy script to clipboard ──
+  const copyScript = () => {
+    if (!accepted?.script) return
+    navigator.clipboard.writeText(accepted.script)
+      .then(() => alert('Script copied! Paste it in APEX SQL Workshop and run it.'))
+      .catch(() => alert('Copy failed — please select and copy manually.'))
   }
 
   const handleKey = (e) => {
@@ -211,6 +250,7 @@ export default function App() {
             </div>
           ) : (
             <div className="space-y-3">
+
               {/* App header card */}
               <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
                 <div className="flex items-center gap-2 mb-1">
@@ -223,8 +263,6 @@ export default function App() {
               {/* Page cards */}
               {appPlan.pages?.map((page, i) => (
                 <div key={i} className="bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
-
-                  {/* Page header */}
                   <div className="flex items-center justify-between px-4 py-2.5 bg-gray-800 border-b border-gray-700">
                     <div className="flex items-center gap-2">
                       <span>{PAGE_TYPE_ICONS[page.page_type] || '📄'}</span>
@@ -236,8 +274,6 @@ export default function App() {
                       {page.page_type}
                     </span>
                   </div>
-
-                  {/* Regions */}
                   <div className="px-4 py-3 space-y-2">
                     {page.regions?.map((region, j) => (
                       <div key={j} className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2">
@@ -245,8 +281,6 @@ export default function App() {
                         <span className="text-xs text-gray-300">{region}</span>
                       </div>
                     ))}
-
-                    {/* SQL preview */}
                     {page.sql_query && (
                       <div className="mt-2 bg-gray-950 rounded-lg px-3 py-2 border border-gray-700">
                         <p className="text-xs text-gray-500 mb-1">SQL</p>
@@ -261,13 +295,52 @@ export default function App() {
                 </div>
               ))}
 
-              {/* Accept button */}
-              <button
-                onClick={() => alert('Day 5 — App creation coming soon!')}
-                className="w-full py-3 bg-green-600 hover:bg-green-500 text-white text-sm font-medium rounded-xl transition-colors mt-2"
-              >
-                ✅ Accept & Create App in APEX
-              </button>
+              {/* Accept button / Script panel */}
+              {!accepted ? (
+                <button
+                  onClick={acceptApp}
+                  disabled={accepting}
+                  className="w-full py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 text-white text-sm font-medium rounded-xl transition-colors mt-2"
+                >
+                  {accepting ? '⏳ Generating script…' : '✅ Accept & Create App in APEX'}
+                </button>
+              ) : (
+                <div className="bg-gray-900 rounded-xl border border-green-700 overflow-hidden mt-2">
+                  <div className="flex items-center justify-between px-4 py-3 bg-green-900/30 border-b border-green-700">
+                    <div>
+                      <p className="text-sm font-semibold text-green-400">✅ Script Ready!</p>
+                      <p className="text-xs text-gray-400">App ID: {accepted.appId}</p>
+                    </div>
+                    <button
+                      onClick={copyScript}
+                      className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs font-medium rounded-lg transition-colors"
+                    >
+                      📋 Copy Script
+                    </button>
+                  </div>
+                  <div className="p-3">
+                    <p className="text-xs text-gray-400 mb-2">Run these steps to create your app:</p>
+                    <div className="space-y-2">
+                      <div className="flex items-start gap-2">
+                        <span className="text-xs bg-blue-600 text-white rounded-full w-4 h-4 flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+                        <p className="text-xs text-gray-300">Click <strong>"Copy Script"</strong> above</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="text-xs bg-blue-600 text-white rounded-full w-4 h-4 flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+                        <p className="text-xs text-gray-300">Go to <strong>APEX → SQL Workshop → SQL Commands</strong></p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="text-xs bg-blue-600 text-white rounded-full w-4 h-4 flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+                        <p className="text-xs text-gray-300">Paste and run the script</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="text-xs bg-blue-600 text-white rounded-full w-4 h-4 flex items-center justify-center flex-shrink-0 mt-0.5">4</span>
+                        <p className="text-xs text-gray-300">Open your new app at <strong>f?p={accepted.appId}:1</strong></p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
