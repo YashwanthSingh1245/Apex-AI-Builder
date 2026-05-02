@@ -1,100 +1,117 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react'
 
-const BASE_URL = 'https://oracleapex.com/ords/yash_tt/ai-builder';
+const BASE_URL = 'https://oracleapex.com/ords/yash_tt/ai-builder'
+
+const PAGE_TYPE_ICONS = {
+  Report:    '📋',
+  Form:      '📝',
+  Dashboard: '📊',
+  Calendar:  '📅',
+  Chart:     '📈',
+}
 
 export default function App() {
-  const [sessionId, setSessionId] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const messagesEndRef = useRef(null);
+  const [sessionId, setSessionId] = useState(null)
+  const [messages, setMessages]   = useState([])
+  const [input, setInput]         = useState('')
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState(null)
+  const [appPlan, setAppPlan]     = useState(null)
+  const messagesEndRef             = useRef(null)
 
   // ── Create session on load ──
   useEffect(() => {
     fetch(`${BASE_URL}/session/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: 'react_user' }),
+      body: JSON.stringify({ username: 'react_user' })
     })
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.status === 'success') {
-          setSessionId(data.session_id);
-        } else {
-          setError('Failed to start session: ' + data.message);
-        }
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === 'success') setSessionId(data.session_id)
+        else setError('Failed to start session: ' + data.message)
       })
-      .catch(() => setError('Cannot reach APEX server. Check CORS settings.'));
-  }, []);
+      .catch(() => setError('Cannot reach APEX server. Check CORS settings.'))
+  }, [])
 
-  // ── Auto scroll to latest message ──
+  // ── Auto scroll ──
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
+
+  // ── Clean reply text (strip JSON block) ──
+  const cleanReply = (text) => {
+    return text
+      .replace(/```json[\s\S]*?```/g, '')
+      .replace(/```[\s\S]*?```/g, '')
+      .trim()
+  }
 
   // ── Send message ──
   const sendMessage = async () => {
-    if (!input.trim() || !sessionId || loading) return;
-
-    const userMsg = input.trim();
-    setInput('');
-    setLoading(true);
-    setError(null);
-
-    // Add user message immediately
-    setMessages((prev) => [...prev, { role: 'user', text: userMsg }]);
+    if (!input.trim() || !sessionId || loading) return
+    const userMsg = input.trim()
+    setInput('')
+    setLoading(true)
+    setError(null)
+    setMessages(prev => [...prev, { role: 'user', text: userMsg }])
 
     try {
       const res = await fetch(`${BASE_URL}/chat/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ session_id: sessionId, prompt: userMsg }),
-      });
-      const data = await res.json();
+        body: JSON.stringify({ session_id: sessionId, prompt: userMsg })
+      })
+      const data = await res.json()
 
       if (data.status === 'success') {
-        setMessages((prev) => [
-          ...prev,
-          { role: 'assistant', text: data.reply },
-        ]);
+        // Strip JSON block from chat display
+        const displayText = cleanReply(data.reply)
+        setMessages(prev => [...prev, { role: 'assistant', text: displayText }])
+
+        // Update right panel if plan returned
+        if (data.has_plan === 'Y' && data.plan_json) {
+          try {
+            const plan = typeof data.plan_json === 'string'
+              ? JSON.parse(data.plan_json)
+              : data.plan_json
+            setAppPlan(plan)
+          } catch {
+            // plan_json parse failed silently
+          }
+        }
       } else {
-        setError('AI error: ' + data.message);
+        setError('AI error: ' + data.message)
       }
     } catch {
-      setError('Network error — check CORS or APEX server.');
+      setError('Network error — check CORS or APEX server.')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
-  // ── Send on Enter key ──
   const handleKey = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
+      e.preventDefault()
+      sendMessage()
     }
-  };
+  }
 
   return (
     <div className="flex h-screen bg-gray-950 text-gray-100 font-sans">
-      {/* ── LEFT PANEL — Chat ── */}
+
+      {/* ── LEFT — Chat ── */}
       <div className="flex flex-col w-1/2 border-r border-gray-800">
+
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-gray-800 bg-gray-900">
           <div>
-            <h1 className="text-sm font-semibold text-white">
-              APEX AI Builder
-            </h1>
+            <h1 className="text-sm font-semibold text-white">APEX AI Builder</h1>
             <p className="text-xs text-gray-500">
               {sessionId ? `Session: ${sessionId.slice(0, 8)}…` : 'Connecting…'}
             </p>
           </div>
-          <span
-            className={`w-2 h-2 rounded-full ${
-              sessionId ? 'bg-green-500' : 'bg-yellow-500'
-            }`}
-          />
+          <span className={`w-2 h-2 rounded-full ${sessionId ? 'bg-green-500' : 'bg-yellow-500'}`}/>
         </div>
 
         {/* Messages */}
@@ -103,57 +120,36 @@ export default function App() {
             <div className="text-center text-gray-600 text-sm mt-20">
               <p className="text-2xl mb-2">⚡</p>
               <p>Describe the APEX app you want to build.</p>
-              <p className="text-xs mt-1">
-                e.g. "Build me an employee directory app"
-              </p>
+              <p className="text-xs mt-1">e.g. "Build me an employee directory app"</p>
             </div>
           )}
 
           {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={`flex ${
-                msg.role === 'user' ? 'justify-end' : 'justify-start'
-              }`}
-            >
-              <div
-                className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ${
-                  msg.role === 'user'
-                    ? 'bg-blue-600 text-white rounded-br-sm'
-                    : 'bg-gray-800 text-gray-100 rounded-bl-sm'
-                }`}
-              >
+            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed ${
+                msg.role === 'user'
+                  ? 'bg-blue-600 text-white rounded-br-sm'
+                  : 'bg-gray-800 text-gray-100 rounded-bl-sm'
+              }`}>
                 {msg.text}
               </div>
             </div>
           ))}
 
-          {/* Loading bubble */}
           {loading && (
             <div className="flex justify-start">
               <div className="bg-gray-800 rounded-2xl rounded-bl-sm px-4 py-3">
                 <div className="flex gap-1">
-                  <span
-                    className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
-                    style={{ animationDelay: '0ms' }}
-                  />
-                  <span
-                    className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
-                    style={{ animationDelay: '150ms' }}
-                  />
-                  <span
-                    className="w-2 h-2 bg-gray-500 rounded-full animate-bounce"
-                    style={{ animationDelay: '300ms' }}
-                  />
+                  <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay:'0ms'}}/>
+                  <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay:'150ms'}}/>
+                  <span className="w-2 h-2 bg-gray-500 rounded-full animate-bounce" style={{animationDelay:'300ms'}}/>
                 </div>
               </div>
             </div>
           )}
-
-          <div ref={messagesEndRef} />
+          <div ref={messagesEndRef}/>
         </div>
 
-        {/* Error bar */}
         {error && (
           <div className="mx-4 mb-2 px-3 py-2 bg-red-900/50 border border-red-700 rounded-lg text-xs text-red-300">
             {error}
@@ -168,7 +164,7 @@ export default function App() {
               rows={2}
               placeholder="Describe your APEX app… (Enter to send)"
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={e => setInput(e.target.value)}
               onKeyDown={handleKey}
               disabled={!sessionId || loading}
             />
@@ -183,23 +179,99 @@ export default function App() {
         </div>
       </div>
 
-      {/* ── RIGHT PANEL — Preview ── */}
+      {/* ── RIGHT — Live Preview ── */}
       <div className="flex flex-col w-1/2 bg-gray-950">
+
         {/* Header */}
-        <div className="px-5 py-3 border-b border-gray-800 bg-gray-900">
-          <h2 className="text-sm font-semibold text-white">Live Preview</h2>
-          <p className="text-xs text-gray-500">App plan will appear here</p>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-800 bg-gray-900">
+          <div>
+            <h2 className="text-sm font-semibold text-white">
+              {appPlan ? appPlan.app_name : 'Live Preview'}
+            </h2>
+            <p className="text-xs text-gray-500">
+              {appPlan ? appPlan.app_description : 'App plan will appear here'}
+            </p>
+          </div>
+          {appPlan && (
+            <span className="text-xs bg-green-900/50 text-green-400 border border-green-700 px-2 py-1 rounded-full">
+              {appPlan.pages?.length} pages
+            </span>
+          )}
         </div>
 
         {/* Preview content */}
-        <div className="flex-1 flex items-center justify-center text-gray-700">
-          <div className="text-center">
-            <p className="text-4xl mb-3">🖥</p>
-            <p className="text-sm">Preview coming in Day 4</p>
-            <p className="text-xs mt-1">AI will return structured JSON plan</p>
-          </div>
+        <div className="flex-1 overflow-y-auto p-4">
+          {!appPlan ? (
+            <div className="flex items-center justify-center h-full text-gray-700">
+              <div className="text-center">
+                <p className="text-4xl mb-3">🖥</p>
+                <p className="text-sm">Send a prompt to generate your app plan</p>
+                <p className="text-xs mt-1">The wireframe will appear here</p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {/* App header card */}
+              <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-lg">🏗</span>
+                  <h3 className="text-sm font-semibold text-white">{appPlan.app_name}</h3>
+                </div>
+                <p className="text-xs text-gray-400">{appPlan.app_description}</p>
+              </div>
+
+              {/* Page cards */}
+              {appPlan.pages?.map((page, i) => (
+                <div key={i} className="bg-gray-900 rounded-xl border border-gray-700 overflow-hidden">
+
+                  {/* Page header */}
+                  <div className="flex items-center justify-between px-4 py-2.5 bg-gray-800 border-b border-gray-700">
+                    <div className="flex items-center gap-2">
+                      <span>{PAGE_TYPE_ICONS[page.page_type] || '📄'}</span>
+                      <span className="text-sm font-medium text-white">
+                        Page {page.page_no} — {page.page_name}
+                      </span>
+                    </div>
+                    <span className="text-xs bg-blue-900/50 text-blue-400 border border-blue-800 px-2 py-0.5 rounded-full">
+                      {page.page_type}
+                    </span>
+                  </div>
+
+                  {/* Regions */}
+                  <div className="px-4 py-3 space-y-2">
+                    {page.regions?.map((region, j) => (
+                      <div key={j} className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-500"/>
+                        <span className="text-xs text-gray-300">{region}</span>
+                      </div>
+                    ))}
+
+                    {/* SQL preview */}
+                    {page.sql_query && (
+                      <div className="mt-2 bg-gray-950 rounded-lg px-3 py-2 border border-gray-700">
+                        <p className="text-xs text-gray-500 mb-1">SQL</p>
+                        <code className="text-xs text-green-400 font-mono">
+                          {page.sql_query.length > 80
+                            ? page.sql_query.slice(0, 80) + '…'
+                            : page.sql_query}
+                        </code>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+              {/* Accept button */}
+              <button
+                onClick={() => alert('Day 5 — App creation coming soon!')}
+                className="w-full py-3 bg-green-600 hover:bg-green-500 text-white text-sm font-medium rounded-xl transition-colors mt-2"
+              >
+                ✅ Accept & Create App in APEX
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
-  );
+  )
 }
