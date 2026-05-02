@@ -327,7 +327,7 @@ export default function App() {
                       </div>
                       <div className="flex items-start gap-2">
                         <span className="text-xs bg-blue-600 text-white rounded-full w-4 h-4 flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
-                        <p className="text-xs text-gray-300">Go to <strong>APEX → SQL Workshop → SQL Commands</strong></p>
+                        <p className="text-xs text-gray-300">Go to <strong>APEX → SQL Workshop → SQL Scripts → Upload</strong></p>
                       </div>
                       <div className="flex items-start gap-2">
                         <span className="text-xs bg-blue-600 text-white rounded-full w-4 h-4 flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
