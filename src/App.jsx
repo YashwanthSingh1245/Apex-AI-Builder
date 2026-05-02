@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 
-const BASE_URL = '/api';
+const BASE_URL = 'https://oracleapex.com/ords/yash_tt/ai-builder';
 
 export default function App() {
   const [sessionId, setSessionId] = useState(null);
